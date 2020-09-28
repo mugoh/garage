@@ -7,7 +7,7 @@ from dowel import logger, tabular
 import numpy as np
 import tensorflow as tf
 
-from garage import EpisodeBatch, log_performance, make_optimizer, StepType
+from garage import log_performance, make_optimizer
 from garage.np import explained_variance_1d, pad_tensor_n
 from garage.np.algos import RLAlgorithm
 from garage.sampler import RaySampler
@@ -177,76 +177,45 @@ class NPO(RLAlgorithm):
         last_return = None
 
         for _ in trainer.step_epochs():
-            trainer.step_path = trainer.obtain_samples(trainer.step_itr)
-            last_return = self._train_once(trainer.step_itr, trainer.step_path)
+            episodes = trainer.obtain_episodes(trainer.step_itr)
+            last_return = self._train_once(trainer.step_itr, episodes)
             trainer.step_itr += 1
 
         return last_return
 
-    def _train_once(self, itr, paths):
+    def _train_once(self, itr, episodes):
         """Perform one step of policy optimization given one batch of samples.
 
         Args:
             itr (int): Iteration number.
-            paths (list[dict]): A list of collected paths.
+            episodes (EpisodeBatch): Batch of episodes.
 
         Returns:
             numpy.float64: Average return.
 
         """
-        # -- Stage: Calculate baseline
-        paths = [
-            dict(
-                observations=path['observations'],
-                actions=(
-                    self._env_spec.action_space.flatten_n(  # noqa: E126
-                        path['actions'])),
-                rewards=path['rewards'],
-                env_infos=path['env_infos'],
-                agent_infos=path['agent_infos'],
-                dones=np.array([
-                    step_type == StepType.TERMINAL
-                    for step_type in path['step_types']
-                ])) for path in paths
-        ]
-
-        if hasattr(self._baseline, 'predict_n'):
-            baseline_predictions = self._baseline.predict_n(paths)
-        else:
-            baseline_predictions = [
-                self._baseline.predict(path) for path in paths
-            ]
-
-        # -- Stage: Pre-process samples based on collected paths
-        samples_data = paths_to_tensors(paths, self.max_episode_length,
-                                        baseline_predictions, self._discount,
-                                        self._gae_lambda)
-
         # -- Stage: Run and calculate performance of the algorithm
         undiscounted_returns = log_performance(itr,
-                                               EpisodeBatch.from_list(
-                                                   self._env_spec, paths),
+                                               episodes,
                                                discount=self._discount)
         self._episode_reward_mean.extend(undiscounted_returns)
         tabular.record('Extras/EpisodeRewardMean',
                        np.mean(self._episode_reward_mean))
 
-        samples_data['average_return'] = np.mean(undiscounted_returns)
-
         logger.log('Optimizing policy...')
-        self._optimize_policy(samples_data)
+        self._optimize_policy(episodes)
 
-        return samples_data['average_return']
+        return np.mean(undiscounted_returns)
 
-    def _optimize_policy(self, samples_data):
+    def _optimize_policy(self, episodes):
         """Optimize policy.
 
         Args:
-            samples_data (dict): Processed sample data.
-                See garage.tf.paths_to_tensors() for details.
+            episodes (EpisodeBatch): Batch of episodes.
 
         """
-        policy_opt_input_values = self._policy_opt_input_values(samples_data)
+        (policy_opt_input_values, obs, baselines,
+         valids) = self._process_episodes_batch(episodes)
         logger.log('Computing loss before')
         loss_before = self._optimizer.loss(policy_opt_input_values)
         logger.log('Computing KL before')
@@ -265,14 +234,13 @@ class NPO(RLAlgorithm):
                        policy_kl_before)
         tabular.record('{}/KL'.format(self.policy.name), policy_kl)
         pol_ent = self._f_policy_entropy(*policy_opt_input_values)
-        ent = np.sum(pol_ent) / np.sum(samples_data['valids'])
+        ent = np.sum(pol_ent) / np.sum(episodes.lengths)
         tabular.record('{}/Entropy'.format(self.policy.name), ent)
         tabular.record('{}/Perplexity'.format(self.policy.name), np.exp(ent))
-        self._fit_baseline_with_data(samples_data)
+        returns = self._fit_baseline_with_data(policy_opt_input_values, obs,
+                                               valids)
 
-        ev = explained_variance_1d(samples_data['baselines'],
-                                   samples_data['returns'],
-                                   samples_data['valids'])
+        ev = explained_variance_1d(baselines, returns, valids)
 
         tabular.record('{}/ExplainedVariance'.format(self._baseline.name), ev)
         self._old_policy.parameters = self.policy.parameters
@@ -474,53 +442,64 @@ class NPO(RLAlgorithm):
 
         return policy_entropy
 
-    def _fit_baseline_with_data(self, samples_data):
+    def _fit_baseline_with_data(self, policy_opt_input_values, observations,
+                                valids):
         """Update baselines from samples.
 
         Args:
-            samples_data (dict): Processed sample data.
-                See garage.tf.paths_to_tensors() for details.
+            policy_opt_input_values (list(np.ndarray)): Flatten policy
+                optimization input values.
+            observations (np.ndarray): Padded observations.
+            valids (np.ndarrsy): 1-D array indicating valid values of
+                observations.
+
+        Returns:
+            np.ndarray: Padded augment returns.
 
         """
-        policy_opt_input_values = self._policy_opt_input_values(samples_data)
-
-        # Augment reward from baselines
-        rewards_tensor = self._f_rewards(*policy_opt_input_values)
         returns_tensor = self._f_returns(*policy_opt_input_values)
         returns_tensor = np.squeeze(returns_tensor, -1)
 
-        paths = samples_data['paths']
-        valids = samples_data['valids']
-
-        # Recompute parts of samples_data
-        aug_rewards = []
+        paths = []
         aug_returns = []
-        for rew, ret, val, path in zip(rewards_tensor, returns_tensor, valids,
-                                       paths):
-            path['rewards'] = rew[val.astype(np.bool)]
-            path['returns'] = ret[val.astype(np.bool)]
-            aug_rewards.append(path['rewards'])
-            aug_returns.append(path['returns'])
-        samples_data['rewards'] = pad_tensor_n(aug_rewards,
-                                               self.max_episode_length)
-        samples_data['returns'] = pad_tensor_n(aug_returns,
-                                               self.max_episode_length)
+
+        for ret, val, ob in zip(returns_tensor, valids, observations):
+            returns = ret[val.astype(np.bool)]
+            obs = ob[val.astype(np.bool)]
+            paths.append(dict(observations=obs, returns=returns))
+            aug_returns.append(returns)
+
+        aug_returns = pad_tensor_n(aug_returns, self.max_episode_length)
 
         # Fit baseline
         logger.log('Fitting baseline...')
         self._baseline.fit(paths)
+        return aug_returns
 
-    def _policy_opt_input_values(self, samples_data):
-        """Map episode samples to the policy optimizer inputs.
+    def _process_episodes_batch(self, episodes):
+        """Process batch of episodes to the policy optimizer inputs.
 
         Args:
-            samples_data (dict): Processed sample data.
-                See garage.tf.paths_to_tensors() for details.
+            episodes (EpisodeBatch): Batch of episodes.
 
         Returns:
             list(np.ndarray): Flatten policy optimization input values.
+            np.ndarray: Padded observations.
+            np.ndarray: Padded baseline predictions.
+            np.ndarrsy: 1-D array indicating valid values of observations and
+                baselines.
 
         """
+        paths = episodes.to_list()
+        for i, _ in enumerate(paths):
+            paths[i]['actions'] = self._env_spec.action_space.flatten_n(
+                paths[i]['actions'])
+
+        baselines = [self._baseline.predict(path) for path in paths]
+        samples_data = paths_to_tensors(paths, self.max_episode_length,
+                                        baselines, self._discount,
+                                        self._gae_lambda)
+
         policy_state_info_list = [
             samples_data['agent_infos'][k] for k in self.policy.state_info_keys
         ]
@@ -535,7 +514,9 @@ class NPO(RLAlgorithm):
             policy_state_info_vars_list=policy_state_info_list,
         )
 
-        return flatten_inputs(policy_opt_input_values)
+        return (flatten_inputs(policy_opt_input_values),
+                samples_data['observations'], samples_data['baselines'],
+                samples_data['valids'])
 
     def _check_entropy_configuration(self, entropy_method, center_adv,
                                      stop_entropy_gradient,
