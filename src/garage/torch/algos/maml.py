@@ -14,6 +14,7 @@ from garage.sampler import RaySampler
 from garage.torch import update_module_params
 from garage.torch.optimizers import (ConjugateGradientOptimizer,
                                      DifferentiableSGD)
+from garage.torch._functions import np_to_torch
 
 # yapf: enable
 
@@ -165,8 +166,8 @@ class MAML:
         obs = np.concatenate([path['observations'] for path in paths], axis=0)
         returns = np.concatenate([path['returns'] for path in paths])
 
-        obs = torch.from_numpy(obs.astype(np.float32))
-        returns = torch.from_numpy(returns.astype(np.float32))
+        obs = np_to_torch(obs.astype(np.float32))
+        returns = np_to_torch(returns.astype(np.float32))
 
         vf_loss = self._value_function.compute_loss(obs, returns)
         # pylint: disable=protected-access
