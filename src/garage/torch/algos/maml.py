@@ -166,7 +166,7 @@ class MAML:
         obs = np.concatenate([path['observations'] for path in paths], axis=0)
         returns = np.concatenate([path['returns'] for path in paths])
 
-        obs = np_to_torch(obs.astype(np.float32))
+        obs = np_to_torch(obs)
         returns = np_to_torch(returns.astype(np.float32))
 
         vf_loss = self._value_function.compute_loss(obs, returns)
