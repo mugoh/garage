@@ -13,6 +13,7 @@ from garage.np.algos import RLAlgorithm
 from garage.sampler import RaySampler
 from garage.torch import compute_advantages, filter_valids
 from garage.torch.optimizers import OptimizerWrapper
+from garage.torch._functions import zero_optim_grads
 
 
 class VPG(RLAlgorithm):
@@ -263,7 +264,7 @@ class VPG(RLAlgorithm):
             torch.Tensor: Calculated mean scalar value of policy loss (float).
 
         """
-        self._policy_optimizer.zero_grad()
+        zero_optim_grads(self._policy_optimizer)
         loss = self._compute_loss_with_adv(obs, actions, rewards, advantages)
         loss.backward()
         self._policy_optimizer.step()
@@ -284,7 +285,7 @@ class VPG(RLAlgorithm):
                 (float).
 
         """
-        self._vf_optimizer.zero_grad()
+        zero_optim_grads(self._vf_optimizer)
         loss = self._value_function.compute_loss(obs, returns)
         loss.backward()
         self._vf_optimizer.step()

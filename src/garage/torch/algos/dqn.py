@@ -12,6 +12,7 @@ from garage._functions import obtain_evaluation_episodes
 from garage.np.algos import RLAlgorithm
 from garage.sampler import FragmentWorker
 from garage.torch import global_device, np_to_torch
+from garage.torch._functions import zero_optim_grads
 
 
 class DQN(RLAlgorithm):
@@ -276,7 +277,7 @@ class DQN(RLAlgorithm):
         selected_qs = torch.sum(qvals * actions, axis=1)
         qval_loss = F.smooth_l1_loss(selected_qs, y_target)
 
-        self._qf_optimizer.zero_grad()
+        zero_optim_grads(self._qf_optimizer)
         qval_loss.backward()
 
         # optionally clip the gradients

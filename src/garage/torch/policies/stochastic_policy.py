@@ -90,7 +90,7 @@ class StochasticPolicy(Policy, abc.ABC):
             observations = self._env_spec.observation_space.unflatten_n(
                 observations)
         with torch.no_grad():
-            if isinstance(observation, np.ndarray):
+            if isinstance(observations, np.ndarray):
                 observation = np_to_torch(observation)
             if not isinstance(observations, torch.Tensor):
                 observations = list_to_tensor(observations)

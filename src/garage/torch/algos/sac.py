@@ -12,7 +12,7 @@ from garage import log_performance, obtain_evaluation_episodes, StepType
 from garage.np.algos import RLAlgorithm
 from garage.sampler import FragmentWorker, RaySampler
 from garage.torch import dict_np_to_torch, global_device
-from garage.torch._functions import list_to_tensor
+from garage.torch._functions import list_to_tensor, zero_optim_grads
 
 # yapf: enable
 
@@ -422,11 +422,11 @@ class SAC(RLAlgorithm):
         obs = samples_data['observation']
         qf1_loss, qf2_loss = self._critic_objective(samples_data)
 
-        self._qf1_optimizer.zero_grad()
+        zero_optim_grads(self._qf1_optimizer)
         qf1_loss.backward()
         self._qf1_optimizer.step()
 
-        self._qf2_optimizer.zero_grad()
+        zero_optim_grads(self._qf2_optimizer)
         qf2_loss.backward()
         self._qf2_optimizer.step()
 

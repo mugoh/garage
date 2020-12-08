@@ -13,6 +13,8 @@ from garage.sampler import FragmentWorker, LocalSampler
 from garage.torch import (dict_np_to_torch, global_device, soft_update_model,
                           torch_to_np)
 
+from garage.torch._functions import zero_optim_grads
+
 
 class TD3(RLAlgorithm):
     """Implementation of TD3.
@@ -312,8 +314,8 @@ class TD3(RLAlgorithm):
             current_Q2, target_Q)
 
         # Optimize critic
-        self._qf_optimizer_1.zero_grad()
-        self._qf_optimizer_2.zero_grad()
+        zero_optim_grads(self._qf_optimizer_1)
+        zero_optim_grads(self._qf_optimizer_2)
         critic_loss.backward()
         self._qf_optimizer_1.step()
         self._qf_optimizer_2.step()

@@ -4,6 +4,7 @@ import torch
 from garage.torch.algos import VPG
 from garage.torch.optimizers import (ConjugateGradientOptimizer,
                                      OptimizerWrapper)
+from garage.torch._functions import zero_optim_grads
 
 
 class TRPO(VPG):
@@ -130,7 +131,7 @@ class TRPO(VPG):
             torch.Tensor: Calculated mean scalar value of policy loss (float).
 
         """
-        self._policy_optimizer.zero_grad()
+        zero_optim_grads(self._policy_optimizer)
         loss = self._compute_loss_with_adv(obs, actions, rewards, advantages)
         loss.backward()
         self._policy_optimizer.step(
