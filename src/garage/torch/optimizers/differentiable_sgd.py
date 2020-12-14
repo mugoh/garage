@@ -57,3 +57,13 @@ class DifferentiableSGD:
             if param.grad is not None:
                 param.grad.detach_()
                 param.grad.zero_()
+
+    def set_grads_none(self):
+        """Sets gradients for all model parameters to None.
+
+        This is an alternative to `zero_grad` which sets
+        gradients to zero.
+        """
+        for param in self.module.parameters():
+            if param.grad:
+                param.grad = None
