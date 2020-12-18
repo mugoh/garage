@@ -327,7 +327,7 @@ class TD3(RLAlgorithm):
             self._actor_loss = -self._qf_1(inputs, actions).mean()
 
             # Optimize actor
-            self._policy_optimizer.zero_grad()
+            zero_optim_grads(self._policy_optimizer)
             self._actor_loss.backward()
             self._policy_optimizer.step()
 
@@ -376,7 +376,7 @@ class TD3(RLAlgorithm):
         tabular.record('QFunction/AverageAbsY',
                        np.mean(np.abs(self._epoch_ys)))
 
-    @property
+    @ property
     def networks(self):
         """Return all the networks within the model.
 

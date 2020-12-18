@@ -438,7 +438,7 @@ class SAC(RLAlgorithm):
 
         policy_loss = self._actor_objective(samples_data, new_actions,
                                             log_pi_new_actions)
-        self._policy_optimizer.zero_grad()
+        zero_optim_grads(self._policy_optimizer)
         policy_loss.backward()
 
         self._policy_optimizer.step()
@@ -446,7 +446,7 @@ class SAC(RLAlgorithm):
         if self._use_automatic_entropy_tuning:
             alpha_loss = self._temperature_objective(log_pi_new_actions,
                                                      samples_data)
-            self._alpha_optimizer.zero_grad()
+            zero_optim_grads(self._alpha_optimizer)
             alpha_loss.backward()
             self._alpha_optimizer.step()
 
@@ -522,10 +522,10 @@ class SAC(RLAlgorithm):
         for net in self.networks:
             net.to(device)
         if not self._use_automatic_entropy_tuning:
-            self._log_alpha = torch.Tensor([self._fixed_alpha
-                                            ]).log().to(device)
+            self._log_alpha = list_to_tensor([self._fixed_alpha
+                                              ]).log().to(device)
         else:
-            self._log_alpha = torch.Tensor([self._initial_log_entropy
-                                            ]).to(device).requires_grad_()
+            self._log_alpha = list_to_tensor([self._initial_log_entropy
+                                              ]).to(device).requires_grad_()
             self._alpha_optimizer = self._optimizer([self._log_alpha],
                                                     lr=self._policy_lr)

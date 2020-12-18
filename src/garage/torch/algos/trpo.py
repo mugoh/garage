@@ -131,7 +131,7 @@ class TRPO(VPG):
             torch.Tensor: Calculated mean scalar value of policy loss (float).
 
         """
-        zero_optim_grads(self._policy_optimizer)
+        zero_optim_grads(self._policy_optimizer._optimizer)
         loss = self._compute_loss_with_adv(obs, actions, rewards, advantages)
         loss.backward()
         self._policy_optimizer.step(

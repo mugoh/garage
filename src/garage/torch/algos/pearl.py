@@ -18,7 +18,7 @@ from garage.sampler import DefaultWorker
 from garage.torch import global_device
 from garage.torch.embeddings import MLPEncoder
 from garage.torch.policies import ContextConditionedPolicy
-from garage.torch._functions import np_to_torch
+from garage.torch._functions import np_to_torch, zero_optim_grads
 
 
 class PEARL(MetaRLAlgorithm):
@@ -351,14 +351,19 @@ class PEARL(MetaRLAlgorithm):
             target_v_values = self.target_vf(next_obs, task_z)
 
         # KL constraint on z if probabilistic
-        self.context_optimizer.zero_grad()
+        zero_optim_grads(
+            self.context_optimizer
+        )
         if self._use_information_bottleneck:
             kl_div = self._policy.compute_kl_div()
             kl_loss = self._kl_lambda * kl_div
             kl_loss.backward(retain_graph=True)
 
-        self.qf1_optimizer.zero_grad()
-        self.qf2_optimizer.zero_grad()
+        zero_optim_grads(self.qf1_optimizer)
+        zero_optim_grads(
+
+            self.qf2_optimizer
+        )
 
         rewards_flat = rewards.view(self._batch_size * num_tasks, -1)
         rewards_flat = rewards_flat * self._reward_scale
@@ -381,7 +386,7 @@ class PEARL(MetaRLAlgorithm):
         # optimize vf
         v_target = min_q - log_pi
         vf_loss = self.vf_criterion(v_pred, v_target.detach())
-        self.vf_optimizer.zero_grad()
+        zero_optim_grads(self.vf_optimizer)
         vf_loss.backward()
         self.vf_optimizer.step()
         self._update_target_network()
@@ -399,7 +404,7 @@ class PEARL(MetaRLAlgorithm):
                            pre_activation_reg_loss)
         policy_loss = policy_loss + policy_reg_loss
 
-        self._policy_optimizer.zero_grad()
+        zero_optim_grads(self._policy_optimizer)
         policy_loss.backward()
         self._policy_optimizer.step()
 
